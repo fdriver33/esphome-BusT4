@@ -101,6 +101,11 @@ struct T4Packet {
   }
 };
 
+enum T4CommandPacket : uint8_t {
+  // Used to run T4Command
+  RUN = 0x82,
+}
+
 enum T4Command : uint8_t {
   CMD_STEP = 0x01,
   CMD_STOP = 0x02,

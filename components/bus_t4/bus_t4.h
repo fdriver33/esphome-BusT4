@@ -24,6 +24,7 @@ public:
   }
 
   void set_parent(BusT4Component *parent) { this->parent_ = parent; }
+  void send_cmd(const T4Command cmd);
 protected:
   BusT4Component *parent_{nullptr};
 };
