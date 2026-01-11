@@ -1,18 +1,59 @@
 #include "cover.h"
+#include "esphome/core/log.h"
 
-namespace esphome {
-namespace bus_t4 {
+namespace esphome::bus_t4 {
 
 static const char *TAG = "bus_t4.cover";
 
 cover::CoverTraits BusT4Cover::get_traits() {
   auto traits = cover::CoverTraits();
-  traits.set_is_assumed_state(true);
-  traits.set_supports_position(false);
+  traits.set_is_assumed_state(false);  // We track actual state now
+  traits.set_supports_position(true);
   traits.set_supports_tilt(false);
   traits.set_supports_toggle(false);
   traits.set_supports_stop(true);
   return traits;
+}
+
+void BusT4Cover::setup() {
+  // Initialize with unknown position
+  this->position = cover::COVER_OPEN;
+  this->current_operation = cover::COVER_OPERATION_IDLE;
+}
+
+void BusT4Cover::loop() {
+  uint32_t now = millis();
+  
+  // Try to initialize device if not yet done
+  if (!init_ok_ && (now - last_init_attempt_ > 10000)) {
+    last_init_attempt_ = now;
+    init_device();
+  }
+  
+  // Request position periodically while moving
+  if (init_ok_ && current_operation != cover::COVER_OPERATION_IDLE) {
+    if (now - last_position_request_ > POSITION_UPDATE_INTERVAL) {
+      last_position_request_ = now;
+      request_position();
+    }
+  }
+}
+
+void BusT4Cover::dump_config() {
+  LOG_COVER("", "Bus T4 Cover", this);
+  ESP_LOGCONFIG(TAG, "  Initialized: %s", init_ok_ ? "Yes" : "No");
+  if (init_ok_) {
+    const char *type_str = "Unknown";
+    switch (motor_type_) {
+      case MOTOR_SLIDING: type_str = "Sliding"; break;
+      case MOTOR_SECTIONAL: type_str = "Sectional"; break;
+      case MOTOR_SWING: type_str = "Swing"; break;
+      case MOTOR_BARRIER: type_str = "Barrier"; break;
+      case MOTOR_UPANDOVER: type_str = "Up-and-over"; break;
+    }
+    ESP_LOGCONFIG(TAG, "  Motor type: %s", type_str);
+    ESP_LOGCONFIG(TAG, "  Position range: %d - %d", pos_min_, pos_max_);
+  }
 }
 
 void BusT4Cover::control(const cover::CoverCall &call) {
@@ -23,16 +64,368 @@ void BusT4Cover::control(const cover::CoverCall &call) {
   }
 
   if (call.get_position().has_value()) {
-    auto pos = *call.get_position();
+    float pos = *call.get_position();
+    
     if (pos == cover::COVER_OPEN) {
-      ESP_LOGD(TAG, "Opening cover");
-      send_cmd(CMD_OPEN);
+      if (current_operation != cover::COVER_OPERATION_OPENING) {
+        ESP_LOGD(TAG, "Opening cover");
+        send_cmd(CMD_OPEN);
+      }
     } else if (pos == cover::COVER_CLOSED) {
-      ESP_LOGD(TAG, "Closing cover");
-      send_cmd(CMD_CLOSE);
+      if (current_operation != cover::COVER_OPERATION_CLOSING) {
+        ESP_LOGD(TAG, "Closing cover");
+        send_cmd(CMD_CLOSE);
+      }
+    } else {
+      // Partial position requested - calculate target encoder position
+      // For now, we just open/close based on direction
+      target_position_ = pos;
+      if (pos > this->position) {
+        if (current_operation != cover::COVER_OPERATION_OPENING) {
+          ESP_LOGD(TAG, "Opening cover to %.0f%%", pos * 100);
+          send_cmd(CMD_OPEN);
+        }
+      } else {
+        if (current_operation != cover::COVER_OPERATION_CLOSING) {
+          ESP_LOGD(TAG, "Closing cover to %.0f%%", pos * 100);
+          send_cmd(CMD_CLOSE);
+        }
+      }
     }
   }
 }
 
-} // bus_t4
-} // esphome
+void BusT4Cover::on_packet(const T4Packet &packet) {
+  // Only process packets from our target address
+  if (packet.header.from != target_address_) {
+    return;
+  }
+  
+  ESP_LOGV(TAG, "Received packet from controller, protocol=%d", packet.header.protocol);
+  
+  if (packet.header.protocol == DEP) {
+    parse_dep_packet(packet);
+  } else if (packet.header.protocol == DMP) {
+    parse_dmp_packet(packet);
+  }
+}
+
+void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
+  // DEP packets contain command responses and status updates
+  // Structure: [device] [command] [status/data...]
+  
+  if (packet.size < 11) return;
+  
+  uint8_t device = packet.message.device;
+  uint8_t command = packet.message.command;
+  
+  ESP_LOGD(TAG, "DEP packet: device=0x%02X, command=0x%02X", device, command);
+  
+  // Check for RUN command responses
+  if (command == RUN || command == (RUN - 0x80)) {
+    uint8_t status = packet.data[10];  // Status byte
+    
+    ESP_LOGD(TAG, "RUN response: status=0x%02X", status);
+    
+    // Parse operation status
+    switch (status) {
+      case STA_OPENING:
+      case 0x83:  // Some controllers use this
+        ESP_LOGI(TAG, "Gate opening");
+        current_operation = cover::COVER_OPERATION_OPENING;
+        break;
+        
+      case STA_CLOSING:
+      case 0x84:  // Some controllers use this
+        ESP_LOGI(TAG, "Gate closing");
+        current_operation = cover::COVER_OPERATION_CLOSING;
+        break;
+        
+      case STA_OPENED:
+        ESP_LOGI(TAG, "Gate fully open");
+        current_operation = cover::COVER_OPERATION_IDLE;
+        this->position = cover::COVER_OPEN;
+        target_position_ = -1.0f;
+        break;
+        
+      case STA_CLOSED:
+        ESP_LOGI(TAG, "Gate fully closed");
+        current_operation = cover::COVER_OPERATION_IDLE;
+        this->position = cover::COVER_CLOSED;
+        target_position_ = -1.0f;
+        break;
+        
+      case STA_STOPPED:
+      case OP_STOPPED:
+        ESP_LOGI(TAG, "Gate stopped");
+        current_operation = cover::COVER_OPERATION_IDLE;
+        target_position_ = -1.0f;
+        request_position();  // Get final position
+        break;
+        
+      case STA_ENDTIME:
+        ESP_LOGI(TAG, "Gate operation ended (timeout)");
+        current_operation = cover::COVER_OPERATION_IDLE;
+        target_position_ = -1.0f;
+        request_position();
+        break;
+        
+      case STA_PART_OPENED:
+        ESP_LOGI(TAG, "Gate partially open");
+        current_operation = cover::COVER_OPERATION_IDLE;
+        target_position_ = -1.0f;
+        request_position();
+        break;
+    }
+    
+    publish_state_if_changed();
+  }
+  
+  // Check for STA (status during movement) packets
+  if (command == STA) {
+    uint8_t status = packet.data[10];
+    uint16_t pos = (packet.data[11] << 8) | packet.data[12];
+    
+    ESP_LOGD(TAG, "STA packet: status=0x%02X, pos=%d", status, pos);
+    
+    switch (status) {
+      case STA_OPENING:
+        current_operation = cover::COVER_OPERATION_OPENING;
+        break;
+      case STA_CLOSING:
+        current_operation = cover::COVER_OPERATION_CLOSING;
+        break;
+      case STA_OPENED:
+        current_operation = cover::COVER_OPERATION_IDLE;
+        this->position = cover::COVER_OPEN;
+        break;
+      case STA_CLOSED:
+        current_operation = cover::COVER_OPERATION_IDLE;
+        this->position = cover::COVER_CLOSED;
+        break;
+      case STA_STOPPED:
+        current_operation = cover::COVER_OPERATION_IDLE;
+        break;
+    }
+    
+    update_position(pos);
+  }
+}
+
+void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
+  // DMP packets contain info responses
+  // Structure: [target] [command] [response_type] [sequence] [error] [data...]
+  
+  if (packet.size < 14) return;
+  
+  uint8_t target = packet.message.device;
+  uint8_t command = packet.message.command;
+  uint8_t response = packet.message.dmp.flags;
+  uint8_t error = packet.message.dmp.status;
+  
+  ESP_LOGD(TAG, "DMP packet: target=0x%02X, cmd=0x%02X, resp=0x%02X, err=0x%02X", 
+           target, command, response, error);
+  
+  // Check for errors
+  if (error != ERR_NONE) {
+    ESP_LOGW(TAG, "DMP error: 0x%02X", error);
+    return;
+  }
+  
+  // Only process completed GET responses
+  if (response != RSP_GET_COMPLETE && response != RSP_GET_INCOMPLETE) {
+    return;
+  }
+  
+  // Process based on command type
+  switch (command) {
+    case INF_TYPE: {
+      // Motor type response
+      uint8_t mtype = packet.data[13];
+      motor_type_ = static_cast<T4MotorType>(mtype);
+      ESP_LOGI(TAG, "Motor type: 0x%02X", mtype);
+      break;
+    }
+    
+    case INF_WHO: {
+      // Device discovery response
+      if (packet.data[11] == 0x01 && packet.data[13] == CONTROLLER) {
+        ESP_LOGI(TAG, "Found motor controller at 0x%02X%02X", 
+                 packet.header.from.address, packet.header.from.endpoint);
+        target_address_ = packet.header.from;
+        init_ok_ = true;
+      }
+      break;
+    }
+    
+    case INF_STATUS: {
+      // Gate status response
+      uint8_t status = packet.data[13];
+      ESP_LOGI(TAG, "Gate status: 0x%02X", status);
+      
+      switch (status) {
+        case STA_OPENED:
+          current_operation = cover::COVER_OPERATION_IDLE;
+          this->position = cover::COVER_OPEN;
+          break;
+        case STA_CLOSED:
+          current_operation = cover::COVER_OPERATION_IDLE;
+          this->position = cover::COVER_CLOSED;
+          break;
+        case STA_OPENING:
+          current_operation = cover::COVER_OPERATION_OPENING;
+          break;
+        case STA_CLOSING:
+          current_operation = cover::COVER_OPERATION_CLOSING;
+          break;
+        case STA_STOPPED:
+        case STA_UNKNOWN:
+          current_operation = cover::COVER_OPERATION_IDLE;
+          request_position();
+          break;
+      }
+      publish_state_if_changed();
+      break;
+    }
+    
+    case INF_CUR_POS: {
+      // Current position response
+      uint16_t pos = (packet.data[13] << 8) | packet.data[14];
+      ESP_LOGD(TAG, "Current position: %d", pos);
+      update_position(pos);
+      break;
+    }
+    
+    case INF_POS_MAX: {
+      // Open position
+      uint16_t pos = (packet.data[13] << 8) | packet.data[14];
+      if (pos > 0) {
+        pos_max_ = pos;
+        ESP_LOGI(TAG, "Open position: %d", pos_max_);
+      }
+      break;
+    }
+    
+    case INF_POS_MIN: {
+      // Close position
+      uint16_t pos = (packet.data[13] << 8) | packet.data[14];
+      pos_min_ = pos;
+      ESP_LOGI(TAG, "Close position: %d", pos_min_);
+      break;
+    }
+    
+    case INF_MAX_OPN: {
+      // Maximum encoder position
+      uint16_t pos = (packet.data[13] << 8) | packet.data[14];
+      ESP_LOGI(TAG, "Max encoder position: %d", pos);
+      if (pos > 0) {
+        pos_max_ = pos;
+      }
+      break;
+    }
+    
+    case INF_IO: {
+      // Input/Output state - includes limit switches
+      uint8_t io_state = packet.data[15];
+      ESP_LOGD(TAG, "I/O state: 0x%02X", io_state);
+      
+      switch (io_state) {
+        case 0x01:  // Close limit switch
+          this->position = cover::COVER_CLOSED;
+          break;
+        case 0x02:  // Open limit switch
+          this->position = cover::COVER_OPEN;
+          break;
+      }
+      publish_state_if_changed();
+      break;
+    }
+  }
+}
+
+void BusT4Cover::init_device() {
+  ESP_LOGI(TAG, "Initializing device...");
+  
+  // Broadcast: Who is on the bus?
+  T4Source broadcast{0xFF, 0xFF};
+  uint8_t who_msg[5] = { FOR_ALL, INF_WHO, REQ_GET, 0x00, 0x00 };
+  T4Packet who_packet(broadcast, parent_->get_address(), DMP, who_msg, sizeof(who_msg));
+  write(&who_packet, 0);
+  
+  // If we already have a target, request info
+  if (init_ok_) {
+    // Request motor type
+    send_info_request(FOR_CU, INF_TYPE);
+    
+    // Request position limits
+    send_info_request(FOR_CU, INF_POS_MAX);
+    send_info_request(FOR_CU, INF_POS_MIN);
+    send_info_request(FOR_CU, INF_MAX_OPN);
+    
+    // Request current status and position
+    request_status();
+    request_position();
+  }
+}
+
+void BusT4Cover::request_position() {
+  if (parent_ == nullptr) return;
+  send_info_request(FOR_CU, INF_CUR_POS);
+}
+
+void BusT4Cover::request_status() {
+  if (parent_ == nullptr) return;
+  send_info_request(FOR_CU, INF_STATUS);
+}
+
+void BusT4Cover::update_position(uint16_t encoder_pos) {
+  pos_current_ = encoder_pos;
+  
+  // Convert encoder position to percentage
+  if (pos_max_ > pos_min_) {
+    float pos = static_cast<float>(encoder_pos - pos_min_) / static_cast<float>(pos_max_ - pos_min_);
+    pos = std::max(0.0f, std::min(1.0f, pos));  // Clamp to 0-1
+    
+    // Consider very small values as fully closed
+    if (pos < CLOSED_POSITION_THRESHOLD) {
+      pos = cover::COVER_CLOSED;
+    }
+    
+    this->position = pos;
+    ESP_LOGD(TAG, "Position: %d -> %.1f%%", encoder_pos, pos * 100);
+  }
+  
+  // Check if we've reached target position
+  if (target_position_ >= 0.0f) {
+    bool reached = false;
+    if (current_operation == cover::COVER_OPERATION_OPENING && this->position >= target_position_) {
+      reached = true;
+    } else if (current_operation == cover::COVER_OPERATION_CLOSING && this->position <= target_position_) {
+      reached = true;
+    }
+    
+    if (reached) {
+      ESP_LOGI(TAG, "Reached target position, stopping");
+      send_cmd(CMD_STOP);
+      target_position_ = -1.0f;
+    }
+  }
+  
+  publish_state_if_changed();
+}
+
+void BusT4Cover::publish_state_if_changed() {
+  // Reset target position when idle
+  if (current_operation == cover::COVER_OPERATION_IDLE) {
+    target_position_ = -1.0f;
+  }
+  
+  // Only publish if something changed
+  if (last_published_op_ != current_operation || last_published_pos_ != this->position) {
+    this->publish_state();
+    last_published_op_ = current_operation;
+    last_published_pos_ = this->position;
+  }
+}
+
+} // namespace esphome::bus_t4

@@ -9,13 +9,13 @@ DEPENDENCIES = ['bus_t4']
 BusT4Cover = bus_t4_ns.class_('BusT4Cover', cover.Cover, cg.Component)
 
 CONFIG_SCHEMA = (
-    cover.cover_schema(BusT4Cover)
+    cover.cover_schema(BusT4Cover, device_class="gate")
+    .extend(cv.COMPONENT_SCHEMA)
     .extend(
         {
             cv.GenerateID(CONF_BUS_T4_ID): cv.use_id(BusT4Component),
         }
     )
-    .extend(cv.COMPONENT_SCHEMA)
 )
 
 async def to_code(config):

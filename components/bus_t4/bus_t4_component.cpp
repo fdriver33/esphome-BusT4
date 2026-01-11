@@ -1,4 +1,5 @@
 #include "bus_t4_component.h"
+#include "bus_t4.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
@@ -20,10 +21,20 @@ void BusT4Component::setup() {
   xTaskCreate(txTaskThunk, "bus_t4_tx", 8192, this, 10, &txTask_);
 }
 
+void BusT4Component::loop() {
+  // Process received packets and dispatch to registered devices
+  T4Packet packet;
+  while (xQueueReceive(rxQueue_, &packet, 0)) {
+    // Dispatch to all registered devices
+    for (auto *device : devices_) {
+      device->on_packet(packet);
+    }
+  }
+}
+
 void BusT4Component::dump_config() {
   ESP_LOGCONFIG(TAG, "BusT4:");
-  ESP_LOGCONFIG(TAG, "  Address: 0x%02X", address_.address);
-  ESP_LOGCONFIG(TAG, "  Endpoint: 0x%02X", address_.endpoint);
+  ESP_LOGCONFIG(TAG, "  Address: 0x%02X%02X", address_.address, address_.endpoint);
 }
 
 void BusT4Component::rxTask() {
