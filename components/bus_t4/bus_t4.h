@@ -6,8 +6,6 @@
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 
-static const char *TAG = "bus_t4.device";
-
 namespace esphome::bus_t4 {
 
 class BusT4Device {

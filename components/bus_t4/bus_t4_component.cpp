@@ -57,9 +57,10 @@ void BusT4Component::rxTask() {
           break;
 
         case CHECKSUM:
-          if (byte == checksum)
+          if (byte == checksum) {
             ESP_LOGD(TAG, "Received packet: %s", format_hex_pretty(packet.data, packet.size).c_str());
             xQueueSend(rxQueue_, &packet, portMAX_DELAY);
+          }
           rx_state = RESET;
           break;
 

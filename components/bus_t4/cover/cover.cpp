@@ -16,22 +16,21 @@ cover::CoverTraits BusT4Cover::get_traits() {
 }
 
 void BusT4Cover::control(const cover::CoverCall &call) {
-  if (call.get_position() == cover::COVER_OPEN) {
-    ESP_LOGD(TAG, "Opening cover");
-    send_cmd(T4Command::CMD_OPEN);
-    return;
-  }
-
-  if (call.get_position() == cover::COVER_CLOSED) {
-    ESP_LOGD(TAG, "Closing cover");
-    send_cmd(T4Command::CMD_CLOSE);
-    return;
-  }
-
   if (call.get_stop()) {
     ESP_LOGD(TAG, "Stopping cover");
-    send_cmd(T4Command::CMD_STOP);
+    send_cmd(CMD_STOP);
     return;
+  }
+
+  if (call.get_position().has_value()) {
+    auto pos = *call.get_position();
+    if (pos == cover::COVER_OPEN) {
+      ESP_LOGD(TAG, "Opening cover");
+      send_cmd(CMD_OPEN);
+    } else if (pos == cover::COVER_CLOSED) {
+      ESP_LOGD(TAG, "Closing cover");
+      send_cmd(CMD_CLOSE);
+    }
   }
 }
 
