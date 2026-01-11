@@ -98,6 +98,7 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   
   // Timing
   uint32_t last_position_update_{0};
+  uint32_t last_position_publish_{0};  // Rate-limit position publishing
   uint32_t last_init_attempt_{0};
   
   // State tracking for change detection

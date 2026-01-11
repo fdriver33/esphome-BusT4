@@ -54,25 +54,28 @@ void BusT4Cover::loop() {
       if (new_position < 0.0f) new_position = 0.0f;
     }
     
-    // Update position if changed significantly
-    if (abs(new_position - this->position) > 0.01f) {
-      this->position = new_position;
+    // Update internal position
+    this->position = new_position;
+    
+    // Rate-limit position publishing to max once per second
+    if (now - last_position_publish_ >= 1000) {
+      last_position_publish_ = now;
       publish_state_if_changed();
+    }
+    
+    // Check if we've reached target position (always check, don't rate-limit)
+    if (target_position_ >= 0.0f) {
+      bool target_reached = false;
+      if (current_operation == cover::COVER_OPERATION_OPENING && this->position >= target_position_) {
+        target_reached = true;
+      } else if (current_operation == cover::COVER_OPERATION_CLOSING && this->position <= target_position_) {
+        target_reached = true;
+      }
       
-      // Check if we've reached target position
-      if (target_position_ >= 0.0f) {
-        bool target_reached = false;
-        if (current_operation == cover::COVER_OPERATION_OPENING && this->position >= target_position_) {
-          target_reached = true;
-        } else if (current_operation == cover::COVER_OPERATION_CLOSING && this->position <= target_position_) {
-          target_reached = true;
-        }
-        
-        if (target_reached) {
-          ESP_LOGI(TAG, "Target position %.0f%% reached, stopping", target_position_ * 100);
-          send_cmd(CMD_STOP);
-          target_position_ = -1.0f;
-        }
+      if (target_reached) {
+        ESP_LOGI(TAG, "Target position %.0f%% reached, stopping", target_position_ * 100);
+        send_cmd(CMD_STOP);
+        target_position_ = -1.0f;
       }
     }
   }
