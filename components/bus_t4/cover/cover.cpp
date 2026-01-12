@@ -242,20 +242,25 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
         
       case STA_STOPPED:
       case OP_STOPPED:
-        ESP_LOGI(TAG, "Gate stopped");
+        ESP_LOGI(TAG, "Gate stopped (mid-movement)");
         cancel_learning();  // Stopped mid-movement, can't learn
+        last_operation_ = current_operation;
         current_operation = cover::COVER_OPERATION_IDLE;
         target_position_ = -1.0f;
         movement_start_time_ = 0;
-        // Position estimate stays at current calculated value
+        // Request actual status - time-based position may be wrong
+        request_status_confirmation();
         break;
         
       case STA_ENDTIME:
         ESP_LOGI(TAG, "Gate operation ended (timeout)");
         cancel_learning();  // Timeout, can't learn
+        last_operation_ = current_operation;
         current_operation = cover::COVER_OPERATION_IDLE;
         target_position_ = -1.0f;
         movement_start_time_ = 0;
+        // Request actual status - timeout means position is uncertain
+        request_status_confirmation();
         break;
         
       case STA_PART_OPENED:
@@ -372,16 +377,23 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
     case INF_STATUS: {
       // Gate status response
       uint8_t gate_status = packet.data[DATA_OFFSET];
-      ESP_LOGI(TAG, "Gate status: 0x%02X", gate_status);
+      ESP_LOGI(TAG, "Gate status: 0x%02X%s", gate_status, 
+               awaiting_confirmation_ ? " (confirmation)" : "");
       
       switch (gate_status) {
         case STA_OPENED:
           current_operation = cover::COVER_OPERATION_IDLE;
           this->position = cover::COVER_OPEN;
+          if (awaiting_confirmation_) {
+            ESP_LOGI(TAG, "Confirmed: gate is fully open");
+          }
           break;
         case STA_CLOSED:
           current_operation = cover::COVER_OPERATION_IDLE;
           this->position = cover::COVER_CLOSED;
+          if (awaiting_confirmation_) {
+            ESP_LOGI(TAG, "Confirmed: gate is fully closed");
+          }
           break;
         case STA_OPENING:
           current_operation = cover::COVER_OPERATION_OPENING;
@@ -391,10 +403,16 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
           break;
         case STA_STOPPED:
         case STA_UNKNOWN:
+        case STA_PART_OPENED:
           current_operation = cover::COVER_OPERATION_IDLE;
-          // Note: Can't request position - controller doesn't respond to DMP position queries
+          if (awaiting_confirmation_) {
+            // Gate stopped mid-movement - position is uncertain
+            // Keep the time-based estimate but log it
+            ESP_LOGW(TAG, "Gate stopped at unknown position (estimated %.0f%%)", this->position * 100);
+          }
           break;
       }
+      awaiting_confirmation_ = false;
       publish_state_if_changed();
       break;
     }
@@ -505,6 +523,13 @@ void BusT4Cover::request_position() {
 
 void BusT4Cover::request_status() {
   if (parent_ == nullptr) return;
+  send_info_request(FOR_CU, INF_STATUS);
+}
+
+void BusT4Cover::request_status_confirmation() {
+  if (parent_ == nullptr) return;
+  ESP_LOGD(TAG, "Requesting status confirmation after unexpected stop");
+  awaiting_confirmation_ = true;
   send_info_request(FOR_CU, INF_STATUS);
 }
 

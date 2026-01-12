@@ -115,6 +115,11 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   void cancel_learning();
   void save_learned_durations();
   void load_learned_durations();
+  
+  // Request status confirmation after unexpected stop
+  void request_status_confirmation();
+  bool awaiting_confirmation_{false};
+  cover::CoverOperation last_operation_{cover::COVER_OPERATION_IDLE};
 };
 
 } // namespace esphome::bus_t4
