@@ -257,9 +257,9 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
           this->position = 0.95f;  // Show as slightly closed until confirmed
           ESP_LOGD(TAG, "Position clamped from 100%% to 95%% pending confirmation");
         }
-        // Request actual status - don't publish until confirmed
+        // Request actual status to confirm position
         request_status_confirmation();
-        return;  // Don't publish yet, wait for confirmation
+        break;  // Publish now with clamped position, update when confirmed
         
       case STA_ENDTIME:
         ESP_LOGI(TAG, "Gate operation ended (timeout)");
@@ -274,9 +274,9 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
         } else if (this->position >= 0.98f) {
           this->position = 0.95f;
         }
-        // Request actual status - don't publish until confirmed
+        // Request actual status to confirm position
         request_status_confirmation();
-        return;  // Don't publish yet, wait for confirmation
+        break;  // Publish now with clamped position, update when confirmed
         
       case STA_PART_OPENED:
         ESP_LOGI(TAG, "Gate partially open");
