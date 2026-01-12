@@ -36,7 +36,7 @@ Should work with:
 - Nice Road 400
 - Nice Spin (SPn21)
 
-Should work with any Nice controller that has a Bus-T4 port (RJ11 connector).
+Should work with any Nice controller that has a Bus-T4 port.
 
 **Device-specific features:**
 - **Walky gates**: Uses 1-byte position values (auto-detected)
