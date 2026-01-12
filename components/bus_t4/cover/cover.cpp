@@ -30,9 +30,9 @@ void BusT4Cover::setup() {
 void BusT4Cover::loop() {
   uint32_t now = millis();
   
-  // Initialization state machine - send one request at a time with delays
+  // Initialization state machine - 250ms between steps
   if (!init_ok_) {
-    if (now - last_init_attempt_ > 2000) {  // 2 seconds between init steps
+    if (now - last_init_attempt_ > 250) {
       last_init_attempt_ = now;
       init_device();
     }
