@@ -75,10 +75,10 @@ enum T4InfoCommand : uint8_t {
   INF_POS_MAX = 0x18,    // Open position
   INF_POS_MIN = 0x19,    // Close position
   INF_IO = 0xD1,         // Input/output state (limit switches)
-  
+
   // Configuration parameters (settable)
   CFG_AUTOCLS = 0x80,    // Auto-close (L1) - 0x00=off, 0x01=on
-  CFG_PH_CLS = 0x81,     // Close after photo (L2) - 0x00=off, 0x01=on  
+  CFG_PH_CLS = 0x81,     // Close after photo (L2) - 0x00=off, 0x01=on
   CFG_ALW_CLS = 0x82,    // Always close (L3) - 0x00=off, 0x01=on
   CFG_STANDBY = 0x83,    // Standby mode - 0x00=off, 0x01=on
   CFG_PEAK = 0x84,       // Peak mode - 0x00=off, 0x01=on

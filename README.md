@@ -282,7 +282,7 @@ When the gate stops, the component queries the controller's I/O state (INF_IO) t
 
 ### 4. Periodic Status Refresh
 
-Every 10 seconds, the component requests a status update from the controller. This helps:
+Every 15 seconds, the component requests a status update from the controller. This helps:
 - Recover from missed packets
 - Keep state synchronized
 - Detect external changes (e.g., remote control operation)
