@@ -248,9 +248,18 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
         current_operation = cover::COVER_OPERATION_IDLE;
         target_position_ = -1.0f;
         movement_start_time_ = 0;
-        // Request actual status - time-based position may be wrong
+        // Don't trust time-based position at endpoints - it may have "completed" falsely
+        // Clamp to mid-range until confirmation
+        if (this->position <= 0.02f) {
+          this->position = 0.05f;  // Show as slightly open until confirmed
+          ESP_LOGD(TAG, "Position clamped from 0%% to 5%% pending confirmation");
+        } else if (this->position >= 0.98f) {
+          this->position = 0.95f;  // Show as slightly closed until confirmed
+          ESP_LOGD(TAG, "Position clamped from 100%% to 95%% pending confirmation");
+        }
+        // Request actual status - don't publish until confirmed
         request_status_confirmation();
-        break;
+        return;  // Don't publish yet, wait for confirmation
         
       case STA_ENDTIME:
         ESP_LOGI(TAG, "Gate operation ended (timeout)");
@@ -259,9 +268,15 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
         current_operation = cover::COVER_OPERATION_IDLE;
         target_position_ = -1.0f;
         movement_start_time_ = 0;
-        // Request actual status - timeout means position is uncertain
+        // Don't trust time-based position at endpoints
+        if (this->position <= 0.02f) {
+          this->position = 0.05f;
+        } else if (this->position >= 0.98f) {
+          this->position = 0.95f;
+        }
+        // Request actual status - don't publish until confirmed
         request_status_confirmation();
-        break;
+        return;  // Don't publish yet, wait for confirmation
         
       case STA_PART_OPENED:
         ESP_LOGI(TAG, "Gate partially open");
