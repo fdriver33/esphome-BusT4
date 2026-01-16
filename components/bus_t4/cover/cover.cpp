@@ -742,6 +742,8 @@ void BusT4Cover::init_device() {
       uint8_t who_msg[5] = { FOR_ALL, INF_WHO, REQ_GET, 0x00, 0x00 };
       T4Packet who_packet(broadcast, parent_->get_address(), DMP, who_msg, sizeof(who_msg));
       write(&who_packet, 0);
+      // Move forward so initialization doesn't stall if a device doesn't answer WHO.
+      init_step_ = 1;
       break;
     }
 
