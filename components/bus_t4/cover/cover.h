@@ -88,6 +88,7 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   void init_device();
   bool init_ok_{false};
   uint8_t init_step_{0};  // Initialization state machine step
+  uint8_t discovery_attempts_{0};
 
   // Device identification - for device-specific handling
   std::string product_name_;           // Product name (e.g., "WLA1", "ROBUSHSR10")

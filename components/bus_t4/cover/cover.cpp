@@ -476,6 +476,7 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
         ESP_LOGI(TAG, "Found motor controller at 0x%02X.%02X",
                  packet.header.from.address, packet.header.from.endpoint);
         target_address_ = packet.header.from;
+        discovery_attempts_ = 0;
         init_step_ = 1;  // Move to next init step, don't flood with requests
       }
       break;
@@ -742,6 +743,11 @@ void BusT4Cover::init_device() {
       uint8_t who_msg[5] = { FOR_ALL, INF_WHO, REQ_GET, 0x00, 0x00 };
       T4Packet who_packet(broadcast, parent_->get_address(), DMP, who_msg, sizeof(who_msg));
       write(&who_packet, 0);
+      discovery_attempts_++;
+      if (discovery_attempts_ >= 5) {
+        ESP_LOGW(TAG, "No controller response to discovery, continuing initialization");
+        init_step_ = 1;
+      }
       break;
     }
 
