@@ -8,6 +8,19 @@ namespace esphome::bus_t4 {
 
 static const char *TAG = "bus_t4.cover";
 
+static const char *bus_t4_cover_operation_to_str(cover::CoverOperation operation) {
+  switch (operation) {
+    case cover::COVER_OPERATION_IDLE:
+      return "IDLE";
+    case cover::COVER_OPERATION_OPENING:
+      return "OPENING";
+    case cover::COVER_OPERATION_CLOSING:
+      return "CLOSING";
+    default:
+      return "UNKNOWN";
+  }
+}
+
 cover::CoverTraits BusT4Cover::get_traits() {
   auto traits = cover::CoverTraits();
   traits.set_is_assumed_state(false);  // We track actual state now
@@ -735,17 +748,19 @@ void BusT4Cover::init_device() {
   // State machine for gradual initialization
   // Each call advances one step to avoid flooding the bus
 
+  ESP_LOGCONFIG(TAG, "Init state machine step %u", init_step_);
+
   switch (init_step_) {
     case 0: {
       // Step 0: Discover devices on the bus
-      ESP_LOGI(TAG, "Initializing device - discovering...");
+      ESP_LOGCONFIG(TAG, "Initializing device - discovering (attempt %d)", discovery_attempts_ + 1);
       T4Source broadcast{0xFF, 0xFF};
       uint8_t who_msg[5] = { FOR_ALL, INF_WHO, REQ_GET, 0x00, 0x00 };
       T4Packet who_packet(broadcast, parent_->get_address(), DMP, who_msg, sizeof(who_msg));
       write(&who_packet, 0);
       discovery_attempts_++;
       if (discovery_attempts_ >= 5) {
-        ESP_LOGW(TAG, "No controller response to discovery, continuing initialization");
+        ESP_LOGCONFIG(TAG, "No controller response to discovery, continuing initialization");
         init_step_ = 1;
       }
       break;
@@ -753,35 +768,35 @@ void BusT4Cover::init_device() {
 
     case 1:
       // Step 1: Request motor type
-      ESP_LOGD(TAG, "Init step 1: requesting motor type");
+      ESP_LOGCONFIG(TAG, "Init step 1: requesting motor type");
       send_info_request(FOR_CU, INF_TYPE);
       init_step_ = 2;
       break;
 
     case 2:
       // Step 2: Request product name (for device-specific behavior detection)
-      ESP_LOGD(TAG, "Init step 2: requesting product name");
+      ESP_LOGCONFIG(TAG, "Init step 2: requesting product name");
       send_info_request(FOR_ALL, INF_PRD);
       init_step_ = 3;
       break;
 
     case 3:
       // Step 3: Request manufacturer
-      ESP_LOGD(TAG, "Init step 3: requesting manufacturer");
+      ESP_LOGCONFIG(TAG, "Init step 3: requesting manufacturer");
       send_info_request(FOR_ALL, INF_MAN);
       init_step_ = 4;
       break;
 
     case 4:
       // Step 4: Request firmware version
-      ESP_LOGD(TAG, "Init step 4: requesting firmware version");
+      ESP_LOGCONFIG(TAG, "Init step 4: requesting firmware version");
       send_info_request(FOR_ALL, INF_FRM);
       init_step_ = 5;
       break;
 
     case 5:
       // Step 5: Request open/close positions
-      ESP_LOGD(TAG, "Init step 5: requesting position limits");
+      ESP_LOGCONFIG(TAG, "Init step 5: requesting position limits");
       send_info_request(FOR_CU, INF_POS_MAX);
       send_info_request(FOR_CU, INF_POS_MIN);
       init_step_ = 6;
@@ -789,21 +804,22 @@ void BusT4Cover::init_device() {
 
     case 6:
       // Step 6: Request max encoder position
-      ESP_LOGD(TAG, "Init step 6: requesting max encoder position");
+      ESP_LOGCONFIG(TAG, "Init step 6: requesting max encoder position");
       send_info_request(FOR_CU, INF_MAX_OPN);
       init_step_ = 7;
       break;
 
     case 7:
       // Step 7: Request status
-      ESP_LOGD(TAG, "Init step 7: requesting status");
+      ESP_LOGCONFIG(TAG, "Init step 7: requesting status");
       send_info_request(FOR_CU, INF_STATUS);
       init_step_ = 8;
       break;
 
     case 8:
       // Step 8: Initialization complete
-      ESP_LOGI(TAG, "Device initialization complete");
+      ESP_LOGCONFIG(TAG, "Device initialization complete (controller 0x%02X.%02X)",
+               target_address_.address, target_address_.endpoint);
       init_ok_ = true;
       init_step_ = 9;
       publish_state_if_changed();
@@ -882,6 +898,11 @@ void BusT4Cover::publish_state_if_changed() {
 
   // Only publish if something changed
   if (last_published_op_ != current_operation || last_published_pos_ != this->position) {
+    ESP_LOGCONFIG(TAG, "State update: op %s -> %s, position %.1f%% -> %.1f%%",
+             bus_t4_cover_operation_to_str(last_published_op_),
+             bus_t4_cover_operation_to_str(current_operation),
+             last_published_pos_ * 100.0f,
+             this->position * 100.0f);
     this->publish_state();
     last_published_op_ = current_operation;
     last_published_pos_ = this->position;
