@@ -6,8 +6,8 @@
 
 namespace esphome::bus_t4 {
 
-static const char *TAG = "bus_t4.cover";
-
+static const char *TAG = "bus_t4.coverX";
+static const char *TAG2 = "bus_t4.init";
 static const char *bus_t4_cover_operation_to_str(cover::CoverOperation operation) {
   switch (operation) {
     case cover::COVER_OPERATION_IDLE:
