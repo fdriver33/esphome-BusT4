@@ -175,6 +175,9 @@ void BusT4Cover::dump_config() {
     if (is_robus_) {
       ESP_LOGCONFIG(TAG, "  Mode: Robus (no position query during movement)");
     }
+    if (is_mc824h_) {
+      ESP_LOGCONFIG(TAG, "  Mode: MC824H (indexed 16-bit encoder, index 0x%02X)", MC824H_POSITION_INDEX);
+    }
 
     // Position tracking mode
     if (force_estimated_position_) {
@@ -617,6 +620,7 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
       break;
     }
 
+    case INF_MIN_CLS:
     case INF_POS_MIN: {
       // Programmed close position - the reference for 0%
       uint16_t pos;
@@ -638,7 +642,7 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
       if (!read_position_value(packet, &pos)) break;
       encoder_max_ = pos;
       ESP_LOGI(TAG, "Max encoder position: %d", encoder_max_);
-      if (!pos_max_from_cu_ && !pos_max_learned_ && pos > 0) {
+      if (!is_mc824h_ && !pos_max_from_cu_ && !pos_max_learned_ && pos > 0) {
         pos_max_ = pos;
         ESP_LOGD(TAG, "Using encoder max as open position (INF_POS_MAX unavailable)");
       }
@@ -646,6 +650,13 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
     }
 
     case INF_IO: {
+      // MC824H D1 has a controller-specific layout. Do not apply the generic
+      // limit-switch mapping that is valid for other families.
+      if (is_mc824h_) {
+        ESP_LOGV(TAG, "MC824H INF_IO left raw; generic limit-switch mapping disabled");
+        break;
+      }
+
       // Input/Output state - includes limit switches
       // Limit switch state is at data[16] = DATA_OFFSET + 4
       // This is consistent across most Nice controllers
@@ -737,10 +748,13 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
           if (product_name_.find(PRODUCT_WALKY) == 0) {
             is_walky_ = true;
             ESP_LOGI(TAG, "Detected Walky device - using 1-byte position mode");
-          }
-          if (product_name_.find(PRODUCT_ROBUS) == 0) {
+          } else if (product_name_.find(PRODUCT_ROBUS) == 0) {
             is_robus_ = true;
             ESP_LOGI(TAG, "Detected Robus device - position queries disabled during movement");
+          } else if (product_name_.find(PRODUCT_MC824H) == 0) {
+            is_mc824h_ = true;
+            ESP_LOGI(TAG, "Detected MC824H device - using indexed encoder position (index 0x%02X)",
+                     MC824H_POSITION_INDEX);
           }
         }
       }
@@ -872,15 +886,24 @@ void BusT4Cover::init_device() {
     case 5:
       // Step 5: Request open/close positions
       ESP_LOGD(TAG, "Init step 5: requesting position limits");
-      send_info_request(FOR_CU, INF_POS_MAX);
-      send_info_request(FOR_CU, INF_POS_MIN);
+      if (is_mc824h_) {
+        request_mc824h_position_register(INF_POS_MAX);
+        request_mc824h_position_register(INF_MIN_CLS);
+      } else {
+        send_info_request(FOR_CU, INF_POS_MAX);
+        send_info_request(FOR_CU, INF_POS_MIN);
+      }
       init_step_ = 6;
       break;
 
     case 6:
       // Step 6: Request max encoder position
       ESP_LOGD(TAG, "Init step 6: requesting max encoder position");
-      send_info_request(FOR_CU, INF_MAX_OPN);
+      if (is_mc824h_) {
+        request_mc824h_position_register(INF_MAX_OPN);
+      } else {
+        send_info_request(FOR_CU, INF_MAX_OPN);
+      }
       init_step_ = 7;
       break;
 
@@ -896,6 +919,8 @@ void BusT4Cover::init_device() {
       ESP_LOGI(TAG, "Device initialization complete");
       init_ok_ = true;
       init_step_ = 9;
+      // Prime live encoder state after the endpoint registers are known.
+      request_position();
       publish_state_if_changed();
       break;
 
@@ -926,9 +951,18 @@ void BusT4Cover::init_oxi_device() {
   write(&frm_packet, 0);
 }
 
+void BusT4Cover::request_mc824h_position_register(T4InfoCommand command) {
+  const uint8_t index[1] = { MC824H_POSITION_INDEX };
+  send_info_request(FOR_CU, command, index, sizeof(index));
+}
+
 void BusT4Cover::request_position() {
   if (parent_ == nullptr || force_estimated_position_) return;
-  send_info_request(FOR_CU, INF_CUR_POS);
+  if (is_mc824h_) {
+    request_mc824h_position_register(INF_CUR_POS);
+  } else {
+    send_info_request(FOR_CU, INF_CUR_POS);
+  }
 }
 
 void BusT4Cover::request_status() {
@@ -965,12 +999,22 @@ void BusT4Cover::update_position(uint16_t encoder_pos) {
 
   // Convert encoder position to percentage
   if (pos_max_ > pos_min_) {
-    float pos = static_cast<float>(encoder_pos - pos_min_) / static_cast<float>(pos_max_ - pos_min_);
+    const float span = static_cast<float>(pos_max_) - static_cast<float>(pos_min_);
+    float pos = (static_cast<float>(encoder_pos) - static_cast<float>(pos_min_)) / span;
     pos = std::max(0.0f, std::min(1.0f, pos));  // Clamp to 0-1
 
     // Consider very small values as fully closed
     if (pos < CLOSED_POSITION_THRESHOLD) {
       pos = cover::COVER_CLOSED;
+    }
+
+    // Some MC824H installations reach the encoder endpoint slightly before
+    // the controller reports the final Opened/Closed state. Keep the UI visibly
+    // in travel until the controller confirms the endpoint.
+    if (is_mc824h_ && current_operation == cover::COVER_OPERATION_OPENING && pos >= cover::COVER_OPEN) {
+      pos = 0.99f;
+    } else if (is_mc824h_ && current_operation == cover::COVER_OPERATION_CLOSING && pos <= cover::COVER_CLOSED) {
+      pos = 0.01f;
     }
 
     this->position = pos;
@@ -1194,7 +1238,7 @@ void BusT4Cover::send_raw_cmd(const std::string &data) {
 bool BusT4Cover::read_position_value(const T4Packet &packet, uint16_t *out,
                                      bool walky_one_byte) const {
   // Width varies by controller: 1 byte on Walky, 2 on a single encoder, 3 on dual-encoder
-  // units where the leading byte selects the encoder
+  // units where the leading byte selects the encoder.
   const uint8_t DATA_OFFSET = 12;
   const uint8_t len = t4_dmp_payload_len(packet);
   if (len < 1) {
@@ -1207,11 +1251,19 @@ bool BusT4Cover::read_position_value(const T4Packet &packet, uint16_t *out,
   if ((walky_one_byte && is_walky_) || len == 1) {
     value = packet.data[DATA_OFFSET];
   } else if (len == 3) {
-    ESP_LOGV(TAG, "Encoder selector 0x%02X", packet.data[DATA_OFFSET]);
-    value = (packet.data[DATA_OFFSET + 1] << 8) | packet.data[DATA_OFFSET + 2];
+    const uint8_t selector = packet.data[DATA_OFFSET];
+    if (is_mc824h_ && selector != MC824H_POSITION_INDEX) {
+      ESP_LOGW(TAG, "Ignoring MC824H position reply for unexpected index 0x%02X (expected 0x%02X)",
+               selector, MC824H_POSITION_INDEX);
+      return false;
+    }
+    ESP_LOGV(TAG, "Encoder selector 0x%02X", selector);
+    value = (static_cast<uint16_t>(packet.data[DATA_OFFSET + 1]) << 8) |
+            static_cast<uint16_t>(packet.data[DATA_OFFSET + 2]);
   } else {
     // 2 bytes, and wider payloads read from the front
-    value = (packet.data[DATA_OFFSET] << 8) | packet.data[DATA_OFFSET + 1];
+    value = (static_cast<uint16_t>(packet.data[DATA_OFFSET]) << 8) |
+            static_cast<uint16_t>(packet.data[DATA_OFFSET + 1]);
   }
 
   if (value == POSITION_UNKNOWN) {
@@ -1271,6 +1323,7 @@ void BusT4Cover::rediscover() {
   firmware_version_.clear();
   is_walky_ = false;
   is_robus_ = false;
+  is_mc824h_ = false;
   pos_max_ = 2048;
   pos_min_ = 0;
   encoder_max_ = 0;
