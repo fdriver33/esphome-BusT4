@@ -14,13 +14,14 @@ BusT4ConfigSwitch = bus_t4_ns.class_(
 CONF_COVER_ID = "cover_id"
 CONF_SETTING = "setting"
 
+# Register map aligned with the working esphome-nice-bidiwifi implementation.
 SETTINGS = {
     "auto_close": 0x80,
-    "photo_close": 0x81,
-    "always_close": 0x82,
-    "standby": 0x83,
-    "peak": 0x84,
-    "pre_flash": 0x85,
+    "photo_close": 0x84,
+    "always_close": 0x88,
+    "standby": 0x8C,
+    "peak": 0x93,
+    "pre_flash": 0x94,
 }
 
 CONFIG_SCHEMA = (
