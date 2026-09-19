@@ -77,7 +77,7 @@ enum T4InfoCommand : uint8_t {
   INF_FRM = 0x0B,        // Firmware version
   INF_DSC = 0x0C,        // Description
   INF_CUR_POS = 0x11,    // Current position
-  INF_MAX_OPN = 0x12,    // Physical max encoder position
+  INF_MAX_OPN = 0x12,    // Max encoder position
   INF_MIN_CLS = 0x13,    // MC824H programmed fully-closed position
   INF_POS_MAX = 0x18,    // Open position
   INF_POS_MIN = 0x19,    // Close position
@@ -87,9 +87,9 @@ enum T4InfoCommand : uint8_t {
   CFG_AUTOCLS = 0x80,    // Auto-close (L1) - 0x00=off, 0x01=on
   CFG_PH_CLS = 0x81,     // Close after photo (L2) - 0x00=off, 0x01=on
   CFG_ALW_CLS = 0x82,    // Always close (L3) - 0x00=off, 0x01=on
-  CFG_STANDBY = 0x83,    // Standby mode (power saving)
-  CFG_PEAK = 0x84,       // Peak mode (faster operation)
-  CFG_PRE_FLASH = 0x85,  // Pre-flash warning light
+  CFG_STANDBY = 0x83,    // Standby mode - 0x00=off, 0x01=on
+  CFG_PEAK = 0x84,       // Peak mode - 0x00=off, 0x01=on
+  CFG_PRE_FLASH = 0x85,  // Pre-flash warning - 0x00=off, 0x01=on
   CFG_CLOSE_SPEED = 0x90, // Close speed (0-100)
   CFG_OPEN_SPEED = 0x91,  // Open speed (0-100)
 };
