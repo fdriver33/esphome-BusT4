@@ -122,6 +122,54 @@ switch:
     cover_id: gate
     setting: pre_flash
 
+# Numeric controller settings. Values are read from the controller and refreshed
+# periodically. After a change, SET is followed by GET readback.
+number:
+  - platform: bus_t4
+    name: "Opening Speed"
+    icon: "mdi:speedometer"
+    unit_of_measurement: "%"
+    mode: slider
+    bus_t4_id: bus
+    cover_id: gate
+    setting: opening_speed
+
+  - platform: bus_t4
+    name: "Closing Speed"
+    icon: "mdi:speedometer"
+    unit_of_measurement: "%"
+    mode: slider
+    bus_t4_id: bus
+    cover_id: gate
+    setting: closing_speed
+
+  - platform: bus_t4
+    name: "Auto-Close Pause Time"
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "s"
+    mode: box
+    bus_t4_id: bus
+    cover_id: gate
+    setting: pause_time
+
+  - platform: bus_t4
+    name: "Photo-Close Time"
+    icon: "mdi:camera-timer"
+    unit_of_measurement: "s"
+    mode: box
+    bus_t4_id: bus
+    cover_id: gate
+    setting: photo_close_time
+
+  - platform: bus_t4
+    name: "Always-Close Time"
+    icon: "mdi:timer-lock"
+    unit_of_measurement: "s"
+    mode: box
+    bus_t4_id: bus
+    cover_id: gate
+    setting: always_close_time
+
 # Security lock using IT4WIFI device identity
 lock:
   - platform: template
