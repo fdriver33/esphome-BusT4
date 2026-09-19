@@ -1,5 +1,8 @@
 #include "bus_t4.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace esphome::bus_t4 {
 
 void BusT4Device::send_cmd(T4Command cmd) {
