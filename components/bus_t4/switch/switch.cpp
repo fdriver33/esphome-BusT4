@@ -48,8 +48,8 @@ void BusT4ConfigSwitch::write_state(bool state) {
   ESP_LOGI(TAG, "Setting parameter 0x%02X to %s", parameter_, state ? "ON" : "OFF");
   send_config_set(parameter_, state ? 0x01 : 0x00);
 
-  // Do not publish optimistically. Queue a GET behind the SET and publish only
-  // the value actually reported by the controller.
+  // Same transaction pattern as esphome-nice-bidiwifi: SET one byte, then GET.
+  // Unlike the old optimistic template switches, publish only the controller readback.
   received_state_ = false;
   request_state_();
 }
@@ -77,14 +77,10 @@ void BusT4ConfigSwitch::on_packet(const T4Packet &packet) {
   }
 
   const uint8_t value = packet.data[DATA_OFFSET];
-  if (value > 1) {
-    ESP_LOGW(TAG, "Unexpected boolean value 0x%02X for parameter 0x%02X", value, parameter_);
-    return;
-  }
-
+  const bool state = value != 0x00;
   received_state_ = true;
-  publish_state(value == 0x01);
-  ESP_LOGD(TAG, "Parameter 0x%02X readback: %s", parameter_, value == 0x01 ? "ON" : "OFF");
+  publish_state(state);
+  ESP_LOGD(TAG, "Parameter 0x%02X readback: %s (0x%02X)", parameter_, state ? "ON" : "OFF", value);
 }
 
 }  // namespace esphome::bus_t4
