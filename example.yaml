@@ -40,7 +40,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/fdriver33/esphome-BusT4
-      ref: config-switch-readback
+      ref: main
     components: [bus_t4]
     refresh: Always
 
@@ -142,8 +142,6 @@ lock:
     on_unlock:
       - lambda: 'id(gate).send_cmd(CMD_RELEASE, IT4WIFI);'
 
-# Raw hex command input for debugging/testing
-# Enter hex string like "55.0C.00.FF..." or "550C00FF..." in Home Assistant
 number:
   - platform: bus_t4
     name: "Opening Speed"
@@ -190,6 +188,8 @@ number:
     cover_id: gate
     setting: always_close_time
     
+# Raw hex command input for debugging/testing
+# Enter hex string like "55.0C.00.FF..." or "550C00FF..." in Home Assistant
 text:
   - platform: template
     name: "Raw Command"
