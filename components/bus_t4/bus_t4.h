@@ -36,6 +36,10 @@ class BusT4Device {
   // Send a DMP info request (get status, position, etc)
   void send_info_request(T4Target target, T4InfoCommand command);
 
+  // Send an indexed DMP info request. Used by controllers such as MC824H,
+  // where the request payload selects the logical motor/encoder channel.
+  void send_info_request(T4Target target, T4InfoCommand command, const uint8_t *args, size_t args_size);
+
   // Send a DMP config set command
   // Accepts uint8_t to allow raw parameter values beyond the T4InfoCommand enum
   void send_config_set(uint8_t param, uint8_t value);
