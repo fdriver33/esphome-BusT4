@@ -40,6 +40,9 @@ struct LearnedDurations {
 static const std::string PRODUCT_WALKY = "WLA";
 // Products starting with ROB = Robus family (no position query during movement)
 static const std::string PRODUCT_ROBUS = "ROB";
+// MC824H/MC824HR dual-swing control units use indexed 16-bit encoder registers
+static const std::string PRODUCT_MC824H = "MC824H";
+static constexpr uint8_t MC824H_POSITION_INDEX = 0x01;
 
 class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
  public:
@@ -96,6 +99,9 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   // Request current position from controller
   void request_position();
 
+  // Request an indexed MC824H position-related register
+  void request_mc824h_position_register(T4InfoCommand command);
+
   // Request status from controller
   void request_status();
 
@@ -130,6 +136,7 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   std::string firmware_version_;       // Firmware version string
   bool is_walky_{false};               // Walky gates: 1-byte position values
   bool is_robus_{false};               // Robus gates: no position query during movement
+  bool is_mc824h_{false};              // MC824H: indexed 16-bit position registers
 
   // OXI receiver tracking
   T4Source oxi_address_{0x00, 0x00};   // OXI receiver address (if present)
