@@ -76,62 +76,99 @@ button:
     on_press:
       - lambda: id(gate).send_cmd(CMD_STEP);
 
-# Motor controller configuration switches
-# These send SET commands to change the controller's settings
+# Motor controller configuration switches.
+# Their state is read from the controller on startup and refreshed periodically.
+# Writes are not optimistic: after SET, the switch publishes the GET readback.
 switch:
-  - platform: template
+  - platform: bus_t4
     name: "Auto-Close"
     icon: "mdi:timer"
-    optimistic: true
-    turn_on_action:
-      - lambda: id(gate).set_auto_close(true);
-    turn_off_action:
-      - lambda: id(gate).set_auto_close(false);
+    bus_t4_id: bus
+    cover_id: gate
+    setting: auto_close
 
-  - platform: template
+  - platform: bus_t4
     name: "Photo-Close"
     icon: "mdi:camera-timer"
-    optimistic: true
-    turn_on_action:
-      - lambda: id(gate).set_photo_close(true);
-    turn_off_action:
-      - lambda: id(gate).set_photo_close(false);
+    bus_t4_id: bus
+    cover_id: gate
+    setting: photo_close
 
-  - platform: template
+  - platform: bus_t4
     name: "Always Close"
     icon: "mdi:lock"
-    optimistic: true
-    turn_on_action:
-      - lambda: id(gate).set_always_close(true);
-    turn_off_action:
-      - lambda: id(gate).set_always_close(false);
+    bus_t4_id: bus
+    cover_id: gate
+    setting: always_close
 
-  - platform: template
+  - platform: bus_t4
     name: "Standby Mode"
     icon: "mdi:power-standby"
-    optimistic: true
-    turn_on_action:
-      - lambda: id(gate).set_standby(true);
-    turn_off_action:
-      - lambda: id(gate).set_standby(false);
+    bus_t4_id: bus
+    cover_id: gate
+    setting: standby
 
-  - platform: template
+  - platform: bus_t4
     name: "Peak Mode"
     icon: "mdi:speedometer"
-    optimistic: true
-    turn_on_action:
-      - lambda: id(gate).set_peak_mode(true);
-    turn_off_action:
-      - lambda: id(gate).set_peak_mode(false);
+    bus_t4_id: bus
+    cover_id: gate
+    setting: peak
 
-  - platform: template
+  - platform: bus_t4
     name: "Pre-Flash Warning"
     icon: "mdi:alarm-light"
-    optimistic: true
-    turn_on_action:
-      - lambda: id(gate).set_pre_flash(true);
-    turn_off_action:
-      - lambda: id(gate).set_pre_flash(false);
+    bus_t4_id: bus
+    cover_id: gate
+    setting: pre_flash
+
+# Numeric controller settings. Values are read from the controller and refreshed
+# periodically. After a change, SET is followed by GET readback.
+number:
+  - platform: bus_t4
+    name: "Opening Speed"
+    icon: "mdi:speedometer"
+    unit_of_measurement: "%"
+    mode: slider
+    bus_t4_id: bus
+    cover_id: gate
+    setting: opening_speed
+
+  - platform: bus_t4
+    name: "Closing Speed"
+    icon: "mdi:speedometer"
+    unit_of_measurement: "%"
+    mode: slider
+    bus_t4_id: bus
+    cover_id: gate
+    setting: closing_speed
+
+  - platform: bus_t4
+    name: "Auto-Close Pause Time"
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "s"
+    mode: box
+    bus_t4_id: bus
+    cover_id: gate
+    setting: pause_time
+
+  - platform: bus_t4
+    name: "Photo-Close Time"
+    icon: "mdi:camera-timer"
+    unit_of_measurement: "s"
+    mode: box
+    bus_t4_id: bus
+    cover_id: gate
+    setting: photo_close_time
+
+  - platform: bus_t4
+    name: "Always-Close Time"
+    icon: "mdi:timer-lock"
+    unit_of_measurement: "s"
+    mode: box
+    bus_t4_id: bus
+    cover_id: gate
+    setting: always_close_time
 
 # Security lock using IT4WIFI device identity
 lock:
@@ -157,4 +194,3 @@ text:
             if (!x.empty()) {
               id(gate).send_raw_cmd(x);
             }
-
